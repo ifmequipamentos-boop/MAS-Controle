@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MAS Válvulas de Controle</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101a27;color:#eef6ff;font:16px system-ui}main{max-width:830px;margin:auto;padding:32px 20px}header{margin-bottom:26px}small{color:#73dfca;letter-spacing:.12em;font-weight:700}h1{font-size:clamp(32px,6vw,52px);line-height:1.06;margin:12px 0}p{line-height:1.5;color:#bacadc}form,section{background:#192838;border:1px solid #3b5167;border-radius:18px;padding:22px;margin-bottom:16px}h2{margin-top:0}label{display:block;font-weight:600}input,select,button{width:100%;font:inherit;border-radius:9px;padding:12px;margin:6px 0 14px}input,select{background:#101a27;color:white;border:1px solid #668098}button{background:#73dfca;border:0;color:#10241f;font-weight:750;cursor:pointer;margin-bottom:0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:0 16px}output{font-size:28px;font-weight:750;color:#73dfca;white-space:pre-line}a{color:#73dfca}
+.opening-status{font-weight:700}.opening-status[data-level="critical"]{color:#ffacaa}.opening-status[data-level="inefficient"]{color:#ffd28a}.opening-status[data-level="normal"]{color:#73dfca}
+</style>
+<main><header><small>M.A.S. · ENGENHARIA</small><h1>Válvulas de controle</h1><p>Pré-dimensionamento para líquidos em escoamento turbulento.</p></header>
+<form id="calc"><h2>Condições de operação</h2><label>Modo<select id="mode"><option value="size">Calcular Kv e Cv necessários</option><option value="loss">Calcular perda de pressão com Kv conhecido</option></select></label>
+<div class="grid"><label>Vazão<input id="flow" inputmode="decimal" value="20" required></label><label>Unidade de vazão<select id="unit"><option>m³/h</option><option>L/min</option></select></label><label>Densidade (kg/m³)<input id="density" inputmode="decimal" value="1000" required></label><label id="field"><span id="fieldName">ΔP disponível na válvula (bar)</span><input id="value" inputmode="decimal" value="1" required></label><label>Abertura da válvula (%) · opcional<input id="opening" inputmode="decimal" placeholder="Ex.: 50" aria-describedby="openingHelp"></label></div><p id="openingHelp">Informe a abertura medida ou obtida na curva Kv × abertura do fabricante. Faixa de controle adotada: 10% a 90%.</p><button>Calcular</button></form>
+<section aria-live="polite"><h2>Resultado</h2><output id="result"></output><p id="formula"></p><p id="openingStatus" class="opening-status" hidden></p></section>
+<p>O cálculo considera líquido monofásico, sem limitação de vazão e sem correção por acessórios. Para selecionar o modelo e o DN, confira a curva Kv × abertura do fabricante e avalie cavitação, vaporização, viscosidade e redutores. O cálculo simplificado também não se aplica a vapor e gases.</p>
+<a href="https://www.emerson.com/is/content/emerson/en/final-control/flow-controls/documents/d101881x012.pdf">Referência técnica · Fisher Control Valve Handbook, cap. 5</a></main>
+<script>
+const get = id => document.getElementById(id);
+const format = new Intl.NumberFormat('pt-BR', {maximumSignificantDigits: 5});
+function positive(id) {
+  const value = get(id).value.trim();
+  return /^\d+(?:[.,]\d+)?$/.test(value) ? Number(value.replace(',', '.')) : NaN;
+}
+function assessOpening() {
+  const status = get('openingStatus');
+  const raw = get('opening').value.trim();
+  status.hidden = !raw;
+  status.dataset.level = '';
+  status.textContent = '';
+  if (!raw) return;
+  const opening = /^\d+(?:[.,]\d+)?$/.test(raw) ? Number(raw.replace(',', '.')) : NaN;
+  if (!Number.isFinite(opening) || opening > 100) {
+    status.textContent = 'Informe uma abertura entre 0% e 100%.';
+    return;
+  }
+  const displayed = opening.toLocaleString('pt-BR', {maximumSignificantDigits: 21}) + '%';
+  if (opening < 10) {
+    status.dataset.level = 'critical';
+    status.textContent = displayed + ' · Crítico. Abertura abaixo de 10%.';
+  } else if (opening > 90) {
+    status.dataset.level = 'inefficient';
+    status.textContent = displayed + ' · Ineficiente para controle. Pouca margem para aumentar a vazão.';
+  } else {
+    status.dataset.level = 'normal';
+    status.textContent = displayed + ' · Dentro da faixa de controle.';
+  }
+}
+function calculate() {
+  const sizing = get('mode').value === 'size';
+  const flow = positive('flow') * (get('unit').selectedIndex === 1 ? 0.06 : 1);
+  const gravity = positive('density') / 1000;
+  const input = positive('value');
+  const result = sizing ? flow * Math.sqrt(gravity / input) : gravity * (flow / input) ** 2;
+  if (![flow, gravity, input, result, sizing ? result / 0.865 : result].every(x => x > 0 && Number.isFinite(x))) {
+    get('result').textContent = 'Confira os campos. Use números positivos, sem separador de milhares.';
+    get('formula').textContent = '';
+    return;
+  }
+  get('result').textContent = sizing ? 'Kv ' + format.format(result) + '\nCv ' + format.format(result / 0.865) : 'ΔP ' + format.format(result) + ' bar';
+  get('formula').textContent = (sizing ? 'Kv = Q × √(DR / ΔP)' : 'ΔP = DR × (Q / Kv)²') + ' · Q em m³/h e DR = densidade / 1.000.';
+}
+get('calc').addEventListener('submit', event => {event.preventDefault(); calculate();});
+get('mode').addEventListener('change', () => {
+  const sizing = get('mode').value === 'size';
+  get('fieldName').textContent = sizing ? 'ΔP disponível na válvula (bar)' : 'Kv na abertura analisada';
+  get('value').value = sizing ? '1' : '20';
+  calculate();
+});
+get('calc').addEventListener('input', event => {
+  if (event.target.id === 'opening') {
+    assessOpening();
+    return;
+  }
+  if (event.target.id !== 'mode') {
+    get('result').textContent = 'Clique em Calcular para atualizar.';
+    get('formula').textContent = '';
+  }
+});
+calculate();
+</script></html>
